@@ -1,0 +1,25 @@
+# Leading dot = domain + all subdomains.
+
+# Anthropic / Claude Code
+.anthropic.com
+# GitHub  (api.github.com, codeload.github.com all end in github.com)
+.github.com
+.githubusercontent.com
+# Your git host
+.gitlab.com
+# Python
+.pypi.org
+files.pythonhosted.org
+# npm (Claude Code self-update)
+.npmjs.org
+# VS Code Remote-SSH server + extensions (needed on a fresh agent-home volume)
+update.code.visualstudio.com
+vscode.download.prss.microsoft.com
+.vscode-cdn.net
+marketplace.visualstudio.com
+.gallerycdn.vsassets.io
+
+# apt at runtime
+.ubuntu.com
+.launchpadcontent.net
+deb.nodesource.com

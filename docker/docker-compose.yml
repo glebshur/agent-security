@@ -1,0 +1,152 @@
+# Python dev container — sysbox-runc + systemd + sshd
+#
+#
+# Prereqs on the Linux host (WSL2 Ubuntu distro or Linux VM):
+#   1. Native Docker Engine installed (NOT Docker Desktop — sysbox is incompatible)
+#   2. sysbox-ce installed and registered with dockerd
+#   3. `docker info` shows `sysbox-runc` in the runtimes list
+#
+# One-time setup before `docker compose up -d`:
+#   - Create ./authorized_keys (a FILE, not a directory) next to this compose
+#     file, containing the public key your Windows ssh-agent uses, e.g.:
+#         cp /mnt/c/Users/<you>/.ssh/id_ed25519.pub ./authorized_keys
+#     It must be owned by root: sshd only accepts an authorized_keys owned by
+#     the logging-in user or by root, and this one file serves both accounts.
+#         sudo chown root:root ./authorized_keys && chmod 644 ./authorized_keys
+#
+# Then:
+#   docker compose up -d
+#   ssh -p 2223 dev@localhost     # smoke-test from WSL2 first
+#
+# Two accounts, same key:
+#   dev    — you. Has passwordless sudo. Use it to install packages.
+#   agent  — the account AI agents run under. No sudo, on purpose.
+#            ssh -p 2223 agent@localhost
+#   Run agents by logging in as `agent`. Logging in as `dev` and starting an
+#   agent from that shell hands it dev's sudo and defeats the separation.
+#
+# Full walkthrough — including Windows → WSL2 SSH and VS Code Remote-SSH —
+# lives in README.md next to this file.
+
+name: agent-security
+
+services:
+  # Filtering forward proxy — the ONLY path to the internet for the dev
+  # container. Enforces the domain allowlist in ./squid/allowlist.txt.
+  # Runs on default runc (no sysbox needed); no published ports, so the
+  # agent can only ever reach it as an HTTP proxy, never log into it.
+  egress-proxy:
+    image: ubuntu/squid:latest
+    container_name: egress-proxy
+    hostname: egress-proxy
+    restart: unless-stopped
+    volumes:
+      - ./squid/squid.conf:/etc/squid/squid.conf:ro
+      - ./squid/allowlist.txt:/etc/squid/allowlist.txt:ro
+    networks: [jail, internet]        # the only bridge between the two
+
+  # Inbound SSH only. `dev` sits on an `internal` network, and Docker will not
+  # publish a host port for a container attached only to such a network — the
+  # publish is silently dropped, the host port never binds, and you get
+  # "connection refused". So the port lives here instead: this container has a
+  # foot in both `default` (publishable) and `jail` (can see py-dev), and does
+  # nothing but splice 127.0.0.1:2223 on the host to py-dev:22.
+  #
+  # This does not open an egress path. socat only ever dials py-dev:22; an
+  # agent inside py-dev that connects to this listener just lands back on its
+  # own sshd. `dev` itself stays internal-only.
+  ssh-ingress:
+    image: alpine/socat:latest
+    container_name: ssh-ingress
+    restart: unless-stopped
+    command: -d -d TCP-LISTEN:2223,fork,reuseaddr TCP:py-dev:22
+    ports:
+      - "127.0.0.1:2223:2223"
+    networks:
+      default:
+        priority: 100
+      jail:
+        priority: 10
+    depends_on: [dev]
+
+    # This container is dual-homed (jail + default), so it is the one piece
+    # that straddles the boundary. socat needs no capabilities to bind a port
+    # above 1024 and writes nothing to disk, so nothing is given. 
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        DEV_USER: ${DEV_USER:-dev}
+        DEV_UID: ${DEV_UID:-1000}
+        DEV_GID: ${DEV_GID:-1000}
+        PYTHON_VERSION: ${PYTHON_VERSION:-3.12}
+        NODE_MAJOR: ${NODE_MAJOR:-20}
+    image: py-dev:latest
+    container_name: py-dev
+    hostname: py-dev
+
+    # The whole point — sysbox gives us a VM-shaped container with real
+    # systemd + sshd, no --privileged needed.
+    runtime: sysbox-runc
+
+    restart: unless-stopped
+
+    # No `ports:` here on purpose. This container is on the `internal` jail
+    # network, where Docker ignores port publishing. Inbound SSH arrives via
+    # the ssh-ingress service above, which binds 127.0.0.1:2223 — still
+    # loopback-only, still unreachable from outside the WSL2 distro / VM.
+
+    volumes:
+      # Your authorized_keys, for both accounts. See header comment for setup.
+      # :ro so a compromised container can't tamper with it.
+      - ./authorized_keys:/home/dev/.ssh/authorized_keys:ro
+      - ./authorized_keys:/home/agent/.ssh/authorized_keys:ro
+
+      # Project tree (parent of this docker-python/ dir).
+      # On WSL2, keep the host-side path inside the Linux filesystem
+      # NOT under /mnt/c/...
+      - ..:/workspace
+
+      # Persist the dev user's home across `docker compose down`:
+      # shell history, .gitconfig, .vscode-server, pip cache, etc.
+      - dev-home:/home/dev
+
+      # Same for the agent account (its own .vscode-server, shell history).
+      - agent-home:/home/agent
+
+      # Virtualenvs and wheel/uv caches created outside a project tree.
+      # Keeps `pip install` results across container recreation.
+      - dev-venvs:/opt/venvs
+
+    # systemd-in-container shutdown signal + a real grace period.
+    stop_signal: SIGRTMIN+3
+    stop_grace_period: 30s
+
+    # Egress lockdown: attach ONLY to the internal "jail" network (no route
+    # to the internet) and depend on the proxy. All outbound HTTP(S) must go
+    # through egress-proxy; anything not allowlisted fails closed.
+    depends_on: [egress-proxy]
+    networks: [jail]
+
+volumes:
+  dev-home:
+  dev-venvs:
+  agent-home:
+
+networks:
+  # No route to the internet. This is the actual enforcement — even if a tool
+  # ignores the http_proxy env vars, packets have nowhere to go.
+  jail:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24       # must match `acl jail` in squid.conf
+  # Normal bridge with internet access; used only by egress-proxy.
+  internet:
+    driver: bridge
