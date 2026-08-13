@@ -36,7 +36,7 @@ services:
   # Runs on default runc (no sysbox needed); no published ports, so the
   # agent can only ever reach it as an HTTP proxy, never log into it.
   egress-proxy:
-    image: ubuntu/squid:latest
+    image: ubuntu/squid:7.2-26.04_beta
     container_name: egress-proxy
     hostname: egress-proxy
     restart: unless-stopped
