@@ -53,19 +53,23 @@ flowchart TB
     proxy -.-> proxy2
     proxy2 -- "allowlist only" --> inet
 
-    classDef jail fill:#f8cfe0,stroke:#b0366a,stroke-width:2px,color:#1a1a1a;
-    classDef pub fill:#cfe4f8,stroke:#2f6fb0,stroke-width:2px,color:#1a1a1a;
-    classDef ext fill:#e4e4e4,stroke:#666,stroke-width:2px,color:#1a1a1a;
+    %% Nodes: deeper pastel fills with dark text so they contrast against the
+    %% lighter group boxes below and stay readable on any page background.
+    classDef jail fill:#f6bcd5,stroke:#b0366a,stroke-width:2px,color:#2a0a18;
+    classDef pub fill:#bcdcf6,stroke:#2f6fb0,stroke-width:2px,color:#0a1e33;
+    classDef ext fill:#dcdee2,stroke:#5a5f6a,stroke-width:2px,color:#1a1a1a;
     class dev,proxy,proxy2 jail;
     class ingress pub;
     class inet,win ext;
 
-    %% network / grouping boundaries
-    style host fill:#1f2a1f,stroke:#7fae7f,stroke-width:2px,color:#e8e8e8;
-    style compose fill:#20242c,stroke:#8899aa,stroke-width:2px,color:#e8e8e8;
-    style net_jail fill:#3a1f2c,stroke:#d06a92,stroke-width:3px,color:#f0d5e0;
-    style net_default fill:#1f2a36,stroke:#5a9bd6,stroke-width:3px,color:#d5e6f0;
-    style net_internet fill:#2a2620,stroke:#c0a060,stroke-width:3px,color:#efe6d0;
+    %% Group boundaries: light fills + dark title text. Keeping every box light
+    %% means the page background (GitHub light OR dark) only frames the diagram,
+    %% while edges and edge-labels keep their theme-default colors and stay legible.
+    style host fill:#e6f2e6,stroke:#4a8f4a,stroke-width:2px,color:#1d3a1d;
+    style compose fill:#eef1f6,stroke:#67707e,stroke-width:2px,color:#242a33;
+    style net_jail fill:#fbe2ec,stroke:#c0507e,stroke-width:2px,color:#5a1230;
+    style net_default fill:#e2eefb,stroke:#3f7fbf,stroke-width:2px,color:#123a5a;
+    style net_internet fill:#f7efd8,stroke:#b08a30,stroke-width:2px,color:#4a3a10;
 ```
 
 `egress-proxy` appears in both the `jail` and `internet` networks — it is the
@@ -127,6 +131,20 @@ the outside world at all.
 > while the agent is expected to help work on this config.
 > To close it, make `docker/` root-owned (`sudo chown -R root:root docker &&
 > sudo chmod 700 docker`) or move the build files out of the bind mount.
+
+### Git & GitHub access
+
+The container holds no GitHub credentials of its own — there is no token, no
+`~/.git-credentials`, no `~/.netrc`, and no private SSH key on the box (only the
+inbound `authorized_keys`). `github.com` is on the proxy allowlist, so git can
+reach it over HTTPS, but authentication is brokered *live* by your editor: VS
+Code's `GIT_ASKPASS` helper answers credential prompts over the Remote-SSH
+tunnel using the GitHub login held on your Windows side, never writing it to
+disk in the container. Two consequences worth knowing:
+
+* `git push` / `pull` work only while a VS Code Remote-SSH session is attached —
+  a headless or `agent`-only SSH session has nothing to authenticate with.
+* There is no stored secret for a misbehaving agent to read or exfiltrate.
 
 ---
 

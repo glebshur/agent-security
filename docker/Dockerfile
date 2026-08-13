@@ -1,19 +1,11 @@
 # syntax=docker/dockerfile:1.6
-#
-# Python dev container — sysbox-runc + systemd + sshd
-#
-#
-# Designed for sysbox-runc, not default runc. With sysbox you do NOT need
-# --privileged to run systemd + sshd inside; that's the security win.
-#
-# Build:   docker compose build
-# Run:     docker compose up -d
-# Connect: ssh -p 2223 dev@localhost   (from WSL2 host or from Windows)
+# Python dev container — sysbox-runc + systemd + sshd. Build/run/connect steps
+# and the full walkthrough are in README.md.
 
 FROM ubuntu:22.04
 
 # systemd inside a container shuts down on SIGRTMIN+3; without this,
-# `docker stop` waits the full grace period and SIGKILLs.
+# `docker stop` waits the full grace period then SIGKILLs.
 STOPSIGNAL SIGRTMIN+3
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -38,7 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV LANG=en_US.UTF-8 LANGUAGE=en_US:en LC_ALL=en_US.UTF-8
 
 # ─── Python ─────────────────────────────────────────────────────────────────
-# Ubuntu 22.04 ships Python 3.10; deadsnakes gives us a current interpreter
+# Ubuntu 22.04 ships Python 3.10; deadsnakes provides a current interpreter
 # without touching /usr/bin/python3 (apt tooling depends on the system one).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends software-properties-common \
@@ -51,10 +43,9 @@ RUN apt-get update \
         python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-# A baked-in virtualenv at /opt/venv is the default environment: `python`,
-# `pip` and `pytest` resolve there for every shell, and `pip install` needs
-# no sudo. It lives outside /home/dev on purpose — that path is a named
-# volume, so anything under it would be shadowed at runtime.
+# Baked-in venv at /opt/venv is the default environment (python/pip/pytest
+# resolve here, no sudo to install). Outside /home/dev on purpose: that path is
+# a named volume and would shadow anything under it at runtime.
 ENV VIRTUAL_ENV=/opt/venv
 ENV PATH=/opt/venv/bin:$PATH
 RUN python${PYTHON_VERSION} -m venv ${VIRTUAL_ENV} \
@@ -69,14 +60,14 @@ RUN python${PYTHON_VERSION} -m venv ${VIRTUAL_ENV} \
         black \
         mypy
 
-# ─── Node.js — solely to provide the Claude Code CLI ────────────────────────
+# ─── Node.js — only to provide the Claude Code CLI ──────────────────────────
 RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && npm install -g @anthropic-ai/claude-code \
     && npm cache clean --force \
     && rm -rf /var/lib/apt/lists/*
 
-# ─── dev user (UID-matched to typical WSL2 user 1000) ───────────────────────
+# ─── dev user (UID-matched to the typical WSL2 user, 1000) ──────────────────
 RUN groupadd -g ${DEV_GID} ${DEV_USER} \
     && useradd -m -u ${DEV_UID} -g ${DEV_GID} -s /bin/bash ${DEV_USER} \
     && install -d -m 0700 -o ${DEV_USER} -g ${DEV_USER} /home/${DEV_USER}/.ssh \
@@ -85,13 +76,9 @@ RUN groupadd -g ${DEV_GID} ${DEV_USER} \
     && chown -R ${DEV_USER}:${DEV_USER} ${VIRTUAL_ENV}
 
 # ─── agent user — the account AI agents run under ───────────────────────────
-# Deliberately NO sudoers entry. `dev` (you) can escalate to root; `agent`
-# cannot, so it can't read root-only credentials, install systemd units to
-# persist itself, or edit this container's own configuration.
-#
-# The separation only holds if the agent's session actually IS this user:
-# SSH in as `agent` to run it. Logging in as `dev` and starting an agent from
-# that shell gives it `dev`'s sudo and voids the whole thing.
+# Deliberately NO sudoers entry: `agent` can't escalate, read root-only creds,
+# or edit this container's config. Only holds if agents actually SSH in as
+# `agent` — logging in as `dev` hands them dev's sudo.
 RUN groupadd -g 1001 agent \
     && useradd -m -u 1001 -g 1001 -s /bin/bash agent \
     && install -d -m 0700 -o agent -g agent /home/agent/.ssh
@@ -104,10 +91,9 @@ RUN { \
     && chmod 0644 /etc/profile.d/10-python-venv.sh
 
 # ─── force all egress through the filtering proxy ───────────────────────────
-# The container has no direct internet (compose puts it on an `internal`
-# network); egress-proxy enforces the domain allowlist. These vars make git,
-# pip, npm, curl and Claude Code use it. /etc/environment is read by PAM so
-# the VS Code remote server picks it up; the profile.d file covers login shells.
+# /etc/environment is read by PAM (so the VS Code remote server inherits these);
+# the profile.d file covers login shells. Together they point git/pip/npm/curl/
+# Claude Code at the proxy.
 RUN { \
         echo 'http_proxy=http://egress-proxy:3128';  echo 'https_proxy=http://egress-proxy:3128'; \
         echo 'HTTP_PROXY=http://egress-proxy:3128';  echo 'HTTPS_PROXY=http://egress-proxy:3128'; \
@@ -120,11 +106,10 @@ RUN { \
       > /etc/profile.d/30-egress-proxy.sh \
     && chmod 0644 /etc/profile.d/30-egress-proxy.sh
 
-# ─── sshd: key-only, no root, no forwarding of any kind ─────────────────────
-# AllowAgentForwarding is off on purpose. 
-# All forwarding is off too (TCP, stream-local/unix-socket, tun, gateway).
-# A contained agent with any of these can tunnel out, pivot through the box,
-# or proxy traffic
+# ─── sshd: key-only, no root, forwarding locked down ────────────────────────
+# Agent/stream-local/tun/gateway forwarding is off and TCP forwarding is capped
+# to loopback (PermitOpen 127.0.0.1:*): a contained agent shouldn't be able to
+# tunnel out or pivot through the box.
 RUN mkdir -p /run/sshd \
     && { \
         echo 'PermitRootLogin no'; \
@@ -145,9 +130,9 @@ RUN mkdir -p /run/sshd \
     && ln -sf /lib/systemd/system/ssh.service \
               /etc/systemd/system/multi-user.target.wants/ssh.service
 
-# ─── systemd hygiene for unprivileged systemd-in-container ──────────────────
-# Mask units that don't make sense without host kernel/device access. Sysbox
-# handles /sys, /proc, /run, /tmp etc. for us — no manual tmpfs mounts needed.
+# ─── systemd hygiene ────────────────────────────────────────────────────────
+# Mask units that need host kernel/device access. Sysbox virtualizes
+# /sys /proc /run /tmp for us, so no manual tmpfs mounts are needed.
 RUN systemctl mask \
         systemd-udevd.service \
         systemd-udevd-kernel.socket \
