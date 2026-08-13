@@ -136,13 +136,20 @@ the outside world at all.
 
 * **WSL2** with an Ubuntu distro — `wsl --install -d Ubuntu` in PowerShell, then
   reboot.
+* **Docker Engine** installed natively *inside* the WSL2 distro (**not** Docker
+  Desktop — sysbox is incompatible with it). Official install guide:
+  <https://docs.docker.com/engine/install/ubuntu/> (or the convenience script,
+  `curl -fsSL https://get.docker.com | sudo sh`). Add yourself to the `docker`
+  group afterwards: `sudo usermod -aG docker "$USER"`.
+* **sysbox-ce** installed inside the WSL2 distro — the container runtime that
+  lets the dev container run real systemd + sshd without `--privileged`. Follow
+  the official install guide:
+  <https://github.com/nestybox/sysbox/blob/master/docs/user-guide/install-package.md>
+  (pick the release matching your Ubuntu version).
 * **OpenSSH client** on Windows (ships with Windows 10/11 — check with
   `ssh -V` in PowerShell).
-* **VS Code** with the **Remote - SSH** extension
+* **VS Code** with the Remote - SSH extension
   (`ms-vscode-remote.remote-ssh`).
-
-> Do **not** use Docker Desktop — sysbox is incompatible with it. Docker Engine
-> must be installed natively *inside* the WSL2 distro (Step 2).
 
 ---
 
@@ -168,28 +175,11 @@ ssh-add -l
 
 ---
 
-### Step 2 — Docker Engine + sysbox inside WSL2
+### Step 2 — Verify Docker + sysbox in WSL2
 
-Open the Ubuntu WSL2 shell.
-
-```bash
-# Docker Engine (official convenience script)
-curl -fsSL https://get.docker.com | sudo sh
-sudo usermod -aG docker "$USER"
-```
-
-Close and reopen the WSL shell (or `wsl --shutdown` from PowerShell) so the
-`docker` group membership applies.
-
-```bash
-# sysbox-ce — check https://github.com/nestybox/sysbox/releases for the
-# current release and match your Ubuntu version.
-wget https://downloads.nestybox.com/sysbox/releases/v0.6.4/sysbox-ce_0.6.4-0.linux_amd64.deb
-sudo apt-get install -y jq
-sudo apt-get install -y ./sysbox-ce_0.6.4-0.linux_amd64.deb
-```
-
-Verify the runtime is registered:
+Open the Ubuntu WSL2 shell. If you just added yourself to the `docker` group,
+close and reopen the shell (or `wsl --shutdown` from PowerShell) so the
+membership applies. Then confirm the sysbox runtime is registered:
 
 ```bash
 docker info | grep -i runtimes
@@ -198,13 +188,6 @@ docker info | grep -i runtimes
 
 If `sysbox-runc` is missing, restart Docker (`sudo systemctl restart docker`,
 or `sudo service docker restart` if systemd isn't enabled) and check again.
-
-> **WSL2 caveat:** sysbox needs systemd in the distro. If `systemctl` errors
-> out, add this to `/etc/wsl.conf` and run `wsl --shutdown` from PowerShell:
-> ```ini
-> [boot]
-> systemd=true
-> ```
 
 ---
 
@@ -305,14 +288,6 @@ the `agent` account instead — never as `dev`:
 ssh -p 2223 agent@localhost
 ```
 
-If the connection hangs or is refused, `localhost` forwarding isn't working. Get
-the WSL IP from the Ubuntu shell and use it in place of `localhost` (note it
-changes on every WSL restart, which is why `localhost` is preferred):
-
-```bash
-hostname -I | awk '{print $1}'      # e.g. 172.24.112.3
-```
-
 #### Persist it in your SSH config
 
 Create or edit `C:\Users\<you>\.ssh\config` (no extension):
@@ -325,14 +300,17 @@ Host py-dev
     IdentityFile ~/.ssh/id_ed25519
     ServerAliveInterval 30
     ServerAliveCountMax 3
+
+# Same container, but logged in as the unprivileged `agent` account —
+# use this one to run AI agents.
+Host py-dev-agent
+    HostName localhost
+    Port 2223
+    User agent
+    IdentityFile ~/.ssh/id_ed25519
+    ServerAliveInterval 30
+    ServerAliveCountMax 3
 ```
-
-Then `ssh py-dev`.
-
-> Note: SSH agent forwarding is **disabled** on the server on purpose (a
-> contained agent with a forwarded socket could pivot outward), so `git push`
-> from inside relies on credentials configured within the container, not a
-> forwarded key.
 
 ---
 
