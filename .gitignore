@@ -219,3 +219,5 @@ __marimo__/
 
 # Environment-specific SSH public key (create locally per the README)
 docker/authorized_keys
+
+.screenshots/

@@ -2,6 +2,8 @@
 
 # Anthropic / Claude Code
 .anthropic.com
+.claude.com
+.claude.ai
 # GitHub  (api.github.com, codeload.github.com all end in github.com)
 .github.com
 .githubusercontent.com
