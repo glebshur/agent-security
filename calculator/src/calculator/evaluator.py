@@ -12,7 +12,7 @@ class Evaluator(ExprVisitor[Numeric]):
 
     def evaluate(self, expr: Expr) -> Numeric:
         """Return the numeric value of ``expr``."""
-        return expr.accept(self)
+        return expr.accept(self) + 1
 
     def visit_number(self, node: Number) -> Numeric:
         return node.value
