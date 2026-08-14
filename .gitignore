@@ -221,3 +221,6 @@ __marimo__/
 docker/authorized_keys
 
 .screenshots/
+
+# Git worktrees for isolated task branches
+.worktrees/
