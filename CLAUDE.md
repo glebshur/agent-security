@@ -36,6 +36,21 @@ Only touch this when explicitly working on the container config. Key files:
 `docker/docker-compose.yml`, `docker/Dockerfile`, `docker/squid/squid.conf`,
 `docker/squid/allowlist.txt`. Common operations (run from `docker/`):
 
+## Workflow: use worktrees for new branches
+
+When starting a task that needs a new branch, create it in a **git worktree**
+rather than switching branches in place. This keeps the main checkout untouched
+and lets tasks run in isolation. Put worktrees under `.worktrees/` (git-ignored):
+
+```bash
+git worktree add .worktrees/<branch> -b <type>/<short-name>   # new branch in a worktree
+cd .worktrees/<branch>                                        # work here
+git worktree remove .worktrees/<branch>                       # clean up when done
+```
+
+Name the branch with the commit type (see below), e.g.
+`git worktree add .worktrees/add-claude-md -b docs/add-claude-md`.
+
 ## Commit conventions
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/): a
