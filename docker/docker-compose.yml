@@ -6,7 +6,7 @@ name: agent-security
 
 services:
   egress-proxy:
-    image: ubuntu/squid:7.2-26.04_beta
+    image: ubuntu/squid:7.2-26.04_edge
     container_name: egress-proxy
     hostname: egress-proxy
     restart: unless-stopped
